@@ -8,16 +8,28 @@ import (
 	"io/ioutil"
 	"mime"
 	"mime/multipart"
+	//"mime/quotedprintable"
 	"net/mail"
 	"strings"
 	"time"
 )
 
-const contentTypeMultipartMixed = "multipart/mixed"
-const contentTypeMultipartAlternative = "multipart/alternative"
-const contentTypeMultipartRelated = "multipart/related"
-const contentTypeTextHtml = "text/html"
-const contentTypeTextPlain = "text/plain"
+const (
+	contentTypeMultipartMixed       = "multipart/mixed"
+	contentTypeMultipartAlternative = "multipart/alternative"
+	contentTypeMultipartRelated     = "multipart/related"
+	contentTypeTextHtml             = "text/html"
+	contentTypeTextPlain            = "text/plain"
+
+	encoding7bit            = "7bit"
+	encoding8Bit            = "8bit"
+	encodingBase64          = "base64"
+	encodingBinary          = "binary"
+	encodingQuotedPrintable = "quoted-printable"
+	encodingEmpty           = ""
+
+	headerContentType = "Content-Type"
+)
 
 // Parse an email message read from io.Reader into parsemail.Email struct
 func Parse(r io.Reader) (email Email, err error) {
@@ -31,7 +43,7 @@ func Parse(r io.Reader) (email Email, err error) {
 		return
 	}
 
-	contentType, params, err := parseContentType(msg.Header.Get("Content-Type"))
+	contentType, params, err := parseContentType(msg.Header.Get(headerContentType))
 	if err != nil {
 		return
 	}
@@ -113,7 +125,7 @@ func parseMultipartRelated(msg io.Reader, boundary string) (textBody, htmlBody s
 			return textBody, htmlBody, embeddedFiles, err
 		}
 
-		contentType, params, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+		contentType, params, err := mime.ParseMediaType(part.Header.Get(headerContentType))
 		if err != nil {
 			return textBody, htmlBody, embeddedFiles, err
 		}
@@ -170,7 +182,7 @@ func parseMultipartAlternative(msg io.Reader, boundary string) (textBody, htmlBo
 			return textBody, htmlBody, embeddedFiles, err
 		}
 
-		contentType, params, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+		contentType, params, err := mime.ParseMediaType(part.Header.Get(headerContentType))
 		if err != nil {
 			return textBody, htmlBody, embeddedFiles, err
 		}
@@ -226,7 +238,7 @@ func parseMultipartMixed(msg io.Reader, boundary string) (textBody, htmlBody str
 			return textBody, htmlBody, attachments, embeddedFiles, err
 		}
 
-		contentType, params, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+		contentType, params, err := mime.ParseMediaType(part.Header.Get(headerContentType))
 		if err != nil {
 			return textBody, htmlBody, attachments, embeddedFiles, err
 		}
@@ -293,7 +305,7 @@ func decodeHeaderMime(header mail.Header) (mail.Header, error) {
 	return mail.Header(parsedHeader), nil
 }
 
-func decodePartData(part *multipart.Part) (io.Reader, error) {
+func decodePart(part *multipart.Part) (io.Reader, error) {
 	encoding := part.Header.Get("Content-Transfer-Encoding")
 
 	if strings.EqualFold(encoding, "base64") {
@@ -310,19 +322,19 @@ func decodePartData(part *multipart.Part) (io.Reader, error) {
 }
 
 func isEmbeddedFile(part *multipart.Part) bool {
-	return part.Header.Get("Content-Transfer-Encoding") != ""
+	return strings.Contains(part.Header.Get("Content-Disposition"), "attachment")
 }
 
 func decodeEmbeddedFile(part *multipart.Part) (ef EmbeddedFile, err error) {
 	cid := decodeMimeSentence(part.Header.Get("Content-Id"))
-	decoded, err := decodePartData(part)
+	decoded, err := decodePart(part)
 	if err != nil {
 		return
 	}
 
 	ef.CID = strings.Trim(cid, "<>")
 	ef.Data = decoded
-	ef.ContentType = part.Header.Get("Content-Type")
+	ef.ContentType = part.Header.Get(headerContentType)
 
 	return
 }
@@ -333,14 +345,14 @@ func isAttachment(part *multipart.Part) bool {
 
 func decodeAttachment(part *multipart.Part) (at Attachment, err error) {
 	filename := decodeMimeSentence(part.FileName())
-	decoded, err := decodePartData(part)
+	decoded, err := decodePart(part)
 	if err != nil {
 		return
 	}
 
 	at.Filename = filename
 	at.Data = decoded
-	at.ContentType = strings.Split(part.Header.Get("Content-Type"), ";")[0]
+	at.ContentType = strings.Split(part.Header.Get(headerContentType), ";")[0]
 
 	return
 }
